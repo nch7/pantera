@@ -19,13 +19,22 @@ class ProcessMessage implements ShouldQueue
     public $message = null;
 
     private $keywords = [
-        "details of *" => "details_of_person",
+        "*schedule*" => "schedule_meeting",
+        "details *" => "details_of_person",
         "*free*" => "who_is_free",
+        "*available*" => "who_is_free",
         "members of team *" => "list_team",
+        "in team *" => "list_team",
+        "*in my team*" => "list_team",
+        "who is *" => "details_of_person",
         "poke *" => "poke",
         "h*llo" => "greeting",
         "hi" => "greeting",
         "hey" => "greeting",
+        "thanks" => "thanks",
+        "*thanks" => "thanks",
+        "thanks*" => "thanks",
+        "*thanks*" => "thanks",
     ];
 
     private $responses = [
@@ -35,6 +44,12 @@ class ProcessMessage implements ShouldQueue
             "Hey",
             "Heyy!",
             "Nice to see you back"
+        ],
+        "thanks" => [
+            "You are welcome!",
+            "It was my pleasure",
+            "No problem",
+            "No problem, let me know if you need anything else"
         ],
         "other" => [
             "Sorry I didn't understood what you mean",
@@ -78,6 +93,9 @@ class ProcessMessage implements ShouldQueue
                 case 'details_of_person':
                     $response = $this->processDetailsOfPerson();
                     break;
+                case 'schedule_meeting':
+                    $response = $this->processScheduleMeeting();
+                    break;
                 default:
                     $response = $this->buildResponse($messageType);
                     break;
@@ -106,6 +124,17 @@ class ProcessMessage implements ShouldQueue
         return "other";
     }
 
+    public function processScheduleMeeting() {
+        $id = $this->parsePerson();
+
+        if($id) {
+            $person = User::find($id);
+            return "Meeting invitation sent to {$person->name}";
+        }
+
+        return "I couldn't find the person, sorry";
+    }
+
     public function processDetailsOfPerson() {
         $id = $this->parsePerson();
 
@@ -132,11 +161,38 @@ class ProcessMessage implements ShouldQueue
         return false;
     }
 
+    public function parseRole() {
+        $roles = Cache::remember('roles', 1440, function() {
+            $users = User::all();
+            $roles = [];
+
+            foreach($users as $user) {
+                if(!in_array($user->role, $roles)) {
+                    $roles[] = $user->role;
+                }
+            }
+
+            return $roles;
+        });
+
+        foreach($roles as $role) {
+            if(strpos(strtolower($this->message), strtolower($role)) !== FALSE) {
+                return $role;
+            }
+        }
+
+        return false;
+    }
+
     public function parseTeam() {
         preg_match('/team ([0-9a-bA-B]+)/i', $this->message, $match);
         
         if(isset($match[1])) {
             return $match[1];
+        }
+
+        if(strpos($this->message, "my") !== FALSE) {
+            return User::find($this->user_id)->team;
         }
 
         return false;
@@ -157,6 +213,8 @@ class ProcessMessage implements ShouldQueue
     public function processWhoIsFree() {
         $team = $this->parseTeam();
         $id = $this->parsePerson();
+        $role = $this->parseRole();
+
         $response = "";
 
         if($id) {
@@ -169,11 +227,28 @@ class ProcessMessage implements ShouldQueue
         }
 
         if($team) {
-            $users = User::where('team', $team)->where('available', true)->get();
-            $response = "List of available members of team <b>".$team."</b>:<br/>";
+            $response = "Sorry, there are no free members at the moment";
+            if($role) {
+                $users = User::where('team', $team)->where('available', true)->where('role', $role)->get();
 
-            foreach($users as $key => $user) {
-                $response .= ($key+1).") {$user->name}<br/>"; 
+                if($users->count() > 0) {
+                    $response = "List of available ".$role."(s) of team <b>".$team."</b>:<br/>";
+
+                    foreach($users as $key => $user) {
+                        $response .= ($key+1).") {$user->name} - {$user->role}<br/>"; 
+                    }
+                }
+            } else {
+                $users = User::where('team', $team)->where('available', true)->get();
+
+                if($users->count() > 0) {
+                    $response = "List of available members of team <b>".$team."</b>:<br/>";
+
+                    foreach($users as $key => $user) {
+                        $response .= ($key+1).") {$user->name} - {$user->role}<br/>"; 
+                    }
+                }
+
             }
             
         }

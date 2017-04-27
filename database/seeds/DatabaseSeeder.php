@@ -13,6 +13,7 @@ class DatabaseSeeder extends Seeder
     {
         Redis::flushall();
         Cache::forget('users');
+        Cache::forget('roles');
         $this->call(UsersTableSeeder::class);
     }
 }
